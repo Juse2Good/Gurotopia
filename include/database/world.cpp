@@ -2,14 +2,11 @@
 #include "items.hpp"
 #include "peer.hpp"
 #include "tools/ransuu.hpp"
+
 #include "world.hpp"
 
-#if defined(_MSC_VER)
-    using namespace std::chrono;
-#else
-    using namespace std::chrono::_V2;
-#endif
-using namespace std::literals::chrono_literals;
+using namespace std::chrono;
+using namespace std::literals::chrono_literals; // @note for 'ms' 's' (millisec, seconds)
 
 class world_db {
 private:
@@ -115,7 +112,7 @@ world::world(const std::string& name)
             ifloats.emplace(uid, ifloat(
                 sqlite3_column_int(stmt, 1),
                 sqlite3_column_int(stmt, 2),
-                {
+                ::pos{
                     static_cast<float>(sqlite3_column_double(stmt, 3)), // @todo
                     static_cast<float>(sqlite3_column_double(stmt, 4)) // @todo
                 }
@@ -171,8 +168,8 @@ world::~world()
             sqlite3_bind_int(stmt, i++, uid);
             sqlite3_bind_int(stmt, i++, item.id);
             sqlite3_bind_int(stmt, i++, item.count);
-            sqlite3_bind_double(stmt, i++, item.pos[0]);
-            sqlite3_bind_double(stmt, i++, item.pos[1]);
+            sqlite3_bind_double(stmt, i++, item.pos.x);
+            sqlite3_bind_double(stmt, i++, item.pos.y);
         });
     }
     
@@ -191,7 +188,9 @@ void send_data(ENetPeer& peer, const std::vector<std::byte> &&data)
 
 void state_visuals(ENetPeer& peer, state &&state) 
 {
-    peers(_peer[&peer]->recent_worlds.back(), PEER_SAME_WORLD, [&](ENetPeer& p) 
+    ::peer *_p = static_cast<::peer*>(peer.data);
+
+    peers(_p->recent_worlds.back(), PEER_SAME_WORLD, [&](ENetPeer& p) 
     {
         send_data(p, compress_state(state));
     });
@@ -199,28 +198,34 @@ void state_visuals(ENetPeer& peer, state &&state)
 
 void tile_apply_damage(ENetEvent& event, state state, block &block)
 {
+    ::peer *peer = static_cast<::peer*>(event.peer->data);
+
     (block.fg == 0) ? ++block.hits.back() : ++block.hits.front();
     state.type = 0x08; // @note PACKET_TILE_APPLY_DAMAGE
     state.id = 6; // @note idk exactly
-    state.netid = _peer[event.peer]->netid;
+    state.netid = peer->netid;
 	state_visuals(*event.peer, std::move(state));
 }
 
 short modify_item_inventory(ENetEvent& event, ::slot slot)
-{
+{   
+    ::peer *peer = static_cast<::peer*>(event.peer->data);
+
     ::state state{.id = slot.id};
     if (slot.count < 0) state.type = (slot.count*-1 << 16) | 0x000d; // @noote 0x00{}000d
     else                state.type = (slot.count    << 24) | 0x000d; // @noote 0x{}00000d
-
     state_visuals(*event.peer, std::move(state));
-    return _peer[event.peer]->emplace(::slot(slot.id, slot.count));
+
+    return peer->emplace(::slot(slot.id, slot.count));
 }
 
-int item_change_object(ENetEvent& event, ::slot slot, const std::array<float, 2zu>& pos, signed uid) 
+int item_change_object(ENetEvent& event, ::slot slot, const ::pos& pos, signed uid) 
 {
-    state state{.type = 0x0e}; // @note PACKET_ITEM_CHANGE_OBJECT
+    ::peer *peer = static_cast<::peer*>(event.peer->data);
 
-    auto w = worlds.find(_peer[event.peer]->recent_worlds.back());
+    ::state state{.type = 0x0e}; // @note PACKET_ITEM_CHANGE_OBJECT
+
+    auto w = worlds.find(peer->recent_worlds.back());
     if (w == worlds.end()) return -1;
 
     auto f = std::find_if(w->second.ifloats.begin(), w->second.ifloats.end(), [&](const std::pair<const int, ifloat>& entry) {
@@ -233,11 +238,11 @@ int item_change_object(ENetEvent& event, ::slot slot, const std::array<float, 2z
         state.uid = f->first;
         state.count = static_cast<float>(f->second.count);
         state.id = f->second.id;
-        state.pos = {f->second.pos[0] * 32, f->second.pos[1] * 32};
+        state.pos = f->second.pos;
     }
     else if (slot.count == 0 || slot.id == 0) // @note remove drop
     {
-        state.netid = _peer[event.peer]->netid;
+        state.netid = peer->netid;
         state.uid = -1;
         state.id = uid;
     }
@@ -248,7 +253,7 @@ int item_change_object(ENetEvent& event, ::slot slot, const std::array<float, 2z
         state.uid = it.first->first;
         state.count = static_cast<float>(slot.count);
         state.id = it.first->second.id;
-        state.pos = {it.first->second.pos[0] * 32, it.first->second.pos[1] * 32};
+        state.pos = it.first->second.pos;
     }
     state_visuals(*event.peer, std::move(state));
     return state.uid;
@@ -259,8 +264,8 @@ void add_drop(ENetEvent& event, ::slot im, ::pos pos)
     ransuu ransuu;
     item_change_object(event, {im.id, im.count},
     {
-        static_cast<float>(pos.x) + ransuu.shosu({7, 50}, 0.01f), // @note (0.07 - 0.50)
-        static_cast<float>(pos.y) + ransuu.shosu({7, 50}, 0.01f)  // @note (0.07 - 0.50)
+        pos.f_x() + ransuu.shosu({7, 50}, 0.01f), // @note (0.07 - 0.50)
+        pos.f_y() + ransuu.shosu({7, 50}, 0.01f)  // @note (0.07 - 0.50)
     });
 }
 
@@ -325,7 +330,8 @@ void tile_update(ENetEvent &event, state state, block &block, world& w)
         }
     }
 
-    peers(_peer[event.peer]->recent_worlds.back(), PEER_SAME_WORLD, [&](ENetPeer& p) 
+    ::peer *peer = static_cast<::peer*>(event.peer->data);
+    peers(peer->recent_worlds.back(), PEER_SAME_WORLD, [&](ENetPeer& p) 
     {
         send_data(p, std::move(data));
     });
@@ -335,14 +341,14 @@ void remove_fire(ENetEvent &event, state state, block &block, world& w)
 {
     state_visuals(*event.peer, ::state{
         .type = 0x11, // @note PACKET_SEND_PARTICLE_EFFECT
-        .pos = { static_cast<float>((state.punch.x * 32) + 16), static_cast<float>((state.punch.y * 32) + 16) },
+        .pos = state.punch,
         .speed = { 0x00000000, 0x95 }
     });
 
     block.state4 &= ~S_FIRE;
     tile_update(event, state, block, w);
 
-    auto &peer = _peer[event.peer];
+    ::peer *peer = static_cast<::peer*>(event.peer->data);
 
     if (++peer->fires_removed % 100 == 0) 
     {
@@ -352,6 +358,8 @@ void remove_fire(ENetEvent &event, state state, block &block, world& w)
         });
         modify_item_inventory(event, {3090/*Combustible Box*/, 1});
     }
+
+    peer->add_xp(event, 1);
 }
 
 void generate_world(world &world, const std::string& name)

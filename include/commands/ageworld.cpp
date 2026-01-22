@@ -1,16 +1,12 @@
 #include "pch.hpp"
 #include "ageworld.hpp"
 
-#if defined(_MSC_VER)
-    using namespace std::chrono;
-#else
-    using namespace std::chrono::_V2;
-#endif
-using namespace std::literals::chrono_literals;
+using namespace std::chrono;
+using namespace std::literals::chrono_literals; // @note for 'ms' 's' (millisec, seconds)
 
 void ageworld(ENetEvent& event, const std::string_view text)
 {
-    auto &peer = _peer[event.peer];
+    ::peer *peer = static_cast<::peer*>(event.peer->data);
 
     if (!worlds.contains(peer->recent_worlds.back())) return;
     ::world &world = worlds.at(peer->recent_worlds.back());

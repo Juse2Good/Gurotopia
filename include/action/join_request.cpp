@@ -8,18 +8,14 @@
 #include "tools/string.hpp"
 #include "join_request.hpp"
 
-#if defined(_MSC_VER)
-    using namespace std::chrono;
-#else
-    using namespace std::chrono::_V2;
-#endif
-using namespace std::literals::chrono_literals;
+using namespace std::chrono;
+using namespace std::literals::chrono_literals; // @note for 'ms' 's' (millisec, seconds)
 
 void action::join_request(ENetEvent& event, const std::string& header, const std::string_view world_name = "") 
 {
     try 
     {
-        auto &peer = _peer[event.peer];
+        ::peer *peer = static_cast<::peer*>(event.peer->data);
 
         std::string big_name{world_name.empty() ? readch(header, '|')[3] : world_name};
         if (!alnum(big_name)) throw std::runtime_error("Sorry, spaces and special characters are not allowed in world or door names.  Try again.");
@@ -201,8 +197,8 @@ void action::join_request(ENetEvent& event, const std::string& header, const std
                 w_data = reinterpret_cast<std::byte*>(data.data()) + offset;
                 
                 *reinterpret_cast<short*>(w_data) = id; w_data += sizeof(short);
-                *reinterpret_cast<float*>(w_data) = pos[0] * 32.0f; w_data += sizeof(float);
-                *reinterpret_cast<float*>(w_data) = pos[1] * 32.0f; w_data += sizeof(float);
+                *reinterpret_cast<float*>(w_data) = pos.x; w_data += sizeof(float);
+                *reinterpret_cast<float*>(w_data) = pos.y; w_data += sizeof(float);
                 *reinterpret_cast<short*>(w_data) = count; w_data += sizeof(short);
                 *reinterpret_cast<int*>(w_data) = uid; w_data += sizeof(int);
             }
@@ -226,14 +222,14 @@ void action::join_request(ENetEvent& event, const std::string& header, const std
         
         peers(peer->recent_worlds.back(), PEER_SAME_WORLD, [&event, &peer, &world, &fmt](ENetPeer& p) 
         {
-            auto &_p = _peer[&p];
+            ::peer *_p = static_cast<::peer*>(p.data);
             
             if (_p->user_id != peer->user_id)
             {
                 packet::create(*event.peer, false, -1/* ff ff ff ff */, {
                     "OnSpawn", 
                     std::format(fmt, 
-                        _p->netid, _p->user_id, static_cast<int>(_p->pos.front()), static_cast<int>(_p->pos.back()), _p->prefix, _p->ltoken[0], (_p->role) ? "1" : "0", (_p->role >= DEVELOPER) ? "1" : "0", 
+                        _p->netid, _p->user_id, _p->pos.x, _p->pos.y, _p->prefix, _p->ltoken[0], (_p->role) ? "1" : "0", (_p->role >= DEVELOPER) ? "1" : "0", 
                         ""
                     ).c_str()
                 });

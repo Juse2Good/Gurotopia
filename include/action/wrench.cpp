@@ -3,22 +3,22 @@
 #include "tools/create_dialog.hpp"
 #include "wrench.hpp"
 
-#include <cmath>
-
 void action::wrench(ENetEvent& event, const std::string& header) 
 {
     std::vector<std::string> pipes = readch(header, '|');
+    ::peer *peer = static_cast<::peer*>(event.peer->data);
+
     if ((pipes[3zu] == "netid" && !pipes[4zu].empty()/*empty netid*/))
     {
         const short netid = atoi(pipes[4zu].c_str());
-        peers(_peer[event.peer]->recent_worlds.back(), PEER_SAME_WORLD, [event, netid](ENetPeer& p) 
+        peers(peer->recent_worlds.back(), PEER_SAME_WORLD, [event, peer, netid](ENetPeer& p) 
         {
-            if (_peer[&p]->netid == netid)
+            ::peer *_p = static_cast<::peer*>(p.data);
+            if (_p->netid == netid)
             {
-                auto &peer = _peer[&p];
-                u_short lvl = peer->level.front();
+                u_short lvl = _p->level.front();
                 /* wrench yourself */
-                if (peer->user_id == _peer[event.peer]->user_id)
+                if (_p->user_id == peer->user_id)
                 {
                     packet::create(*event.peer, false, 0, {
                         "OnDialogRequest",
@@ -26,7 +26,7 @@ void action::wrench(ENetEvent& event, const std::string& header)
                             .embed_data("netID", netid)
                             .add_popup_name("WrenchMenu")
                             .set_default_color("`o")
-                            .add_player_info(std::format("`{}{}``", peer->prefix, peer->ltoken[0]), std::to_string(lvl), peer->level.back(), 50 * (lvl * lvl + 2))
+                            .add_player_info(std::format("`{}{}``", _p->prefix, _p->ltoken[0]), std::to_string(lvl), _p->level.back(), 50 * (lvl * lvl + 2))
                             .add_spacer("small")
                             .add_spacer("small")
                             .add_button("renew_pvp_license", "Get Card Battle License")
@@ -60,10 +60,10 @@ void action::wrench(ENetEvent& event, const std::string& header)
                             .add_textbox("`wActive effects:``")
                             /* @todo handle peer's effects */
                             .add_spacer("small")
-                            .add_smalltext(std::format("Fires Put Out: {}", peer->fires_removed))
+                            .add_smalltext(std::format("Fires Put Out: {}", _p->fires_removed))
                             .add_spacer("small")
-                            .add_textbox(std::format("`oYou have `w{}`` backpack slots.``", peer->slot_size))
-                            .add_textbox(std::format("`oCurrent world: `w{}`` (`w{}``, `w{}``) (`w0`` person)````", peer->recent_worlds.back(), std::round(peer->pos[0]/32), std::round(peer->pos[1]/32)))
+                            .add_textbox(std::format("`oYou have `w{}`` backpack slots.``", _p->slot_size))
+                            .add_textbox(std::format("`oCurrent world: `w{}`` (`w{}``, `w{}``) (`w0`` person)````", _p->recent_worlds.back(), _p->pos.x, _p->pos.y))
                             .add_textbox("`oYou are standing on the note \"A\".``")
                             .add_spacer("small")
                             .add_textbox("`oTotal time played is `w0.0`` hours.  This account was created `w0`` days ago.``")
@@ -81,7 +81,7 @@ void action::wrench(ENetEvent& event, const std::string& header)
                             .embed_data("netID", netid)
                             .add_popup_name("WrenchMenu")
                             .set_default_color("`o")
-                            .add_label_with_icon("big", std::format("`{}{} (`2{}``)``", peer->prefix, peer->ltoken[0], lvl), 18)
+                            .add_label_with_icon("big", std::format("`{}{} (`2{}``)``", _p->prefix, _p->ltoken[0], lvl), 18)
                             .embed_data("netID", netid)
                             .add_spacer("small")
                             .add_achieve("0"/*@todo add achivements*/)

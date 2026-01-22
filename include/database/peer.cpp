@@ -1,15 +1,12 @@
 #include "pch.hpp"
 #include "items.hpp"
-#include "peer.hpp"
 #include "world.hpp"
 #include "on/SetClothing.hpp"
 #include "on/CountryState.hpp"
 
-#if defined(_MSC_VER)
-    using namespace std::chrono;
-#else
-    using namespace std::chrono::_V2;
-#endif
+#include "peer.hpp"
+
+using namespace std::chrono;
 
 short peer::emplace(slot s) 
 {
@@ -180,23 +177,23 @@ peer::~peer()
         });
     }
     db.commit();
+    printf("save peer\n");
 }
 
-std::unordered_map<ENetPeer*, std::shared_ptr<peer>> _peer;
-
-ENetHost *server;
+ENetHost *host;
 
 std::vector<ENetPeer*> peers(const std::string &world, peer_condition condition, std::function<void(ENetPeer&)> fun)
 {
     std::vector<ENetPeer*> _peers{};
-    _peers.reserve(server->peerCount);
+    _peers.reserve(host->peerCount);
 
-    for (ENetPeer &peer : std::span(server->peers, server->peerCount))
+    for (ENetPeer &peer : std::span(host->peers, host->peerCount))
         if (peer.state == ENET_PEER_STATE_CONNECTED) // @todo handle peers who haven't been allocated in _peer
         {
             if (condition == peer_condition::PEER_SAME_WORLD)
             {
-                if (_peer[&peer]->netid == 0 || (_peer[&peer]->recent_worlds.back() != world)) continue;
+                ::peer *_p = static_cast<::peer*>(peer.data);
+                if (_p->netid == 0 || (_p->recent_worlds.back() != world)) continue;
             }
             fun(peer);
             _peers.push_back(&peer);
@@ -207,12 +204,13 @@ std::vector<ENetPeer*> peers(const std::string &world, peer_condition condition,
 
 void safe_disconnect_peers(int signal)
 {
-    for (ENetPeer &p : std::span(server->peers, server->peerCount))
+    for (ENetPeer &p : std::span(host->peers, host->peerCount))
         if (p.state == ENET_PEER_STATE_CONNECTED)
             enet_peer_disconnect(&p, 0);
 
-    enet_host_destroy(server);
+    enet_host_destroy(host);
     enet_deinitialize();
+    puts("you killed gurotopia safely!");
 }
 
 state get_state(const std::vector<std::byte> &&packet) 
@@ -226,7 +224,7 @@ state get_state(const std::vector<std::byte> &&packet)
         .peer_state = _4bit[4],
         .count = _4bit_f[5],
         .id = _4bit[6],
-        .pos = {_4bit_f[7], _4bit_f[8]},
+        .pos = ::pos{_4bit_f[7], _4bit_f[8]},
         .speed = {_4bit_f[9], _4bit_f[10]},
         .idk = _4bit[11],
         .punch = ::pos{_4bit[12], _4bit[13]},
@@ -246,8 +244,9 @@ std::vector<std::byte> compress_state(const state &s)
     _4bit[4] = s.peer_state;
     _4bit_f[5] = s.count;
     _4bit[6] = s.id;
-    _4bit_f[7] = s.pos[0];
-    _4bit_f[8] = s.pos[1];
+    ::pos f_pos = s.pos; // @todo
+    _4bit_f[7] = f_pos.f_x();
+    _4bit_f[8] = f_pos.f_y();
     _4bit_f[9] = s.speed[0];
     _4bit_f[10] = s.speed[1];
     _4bit[11] = s.idk;
@@ -259,7 +258,7 @@ std::vector<std::byte> compress_state(const state &s)
 
 void send_inventory_state(ENetEvent &event)
 {
-    auto &peer = _peer[event.peer];
+    ::peer *peer = static_cast<::peer*>(event.peer->data);
 
     std::vector<std::byte> data = compress_state(::state{
         .type = 0x09, // @note PACKET_SEND_INVENTORY_STATE
